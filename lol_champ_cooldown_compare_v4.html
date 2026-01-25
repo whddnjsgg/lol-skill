@@ -84,7 +84,17 @@
       font-size: 12px;
       color: var(--muted);
       white-space: nowrap;
+      display:flex;
+      align-items:center;
+      gap: 10px;
     }
+    .meta .dot{
+      width:4px; height:4px;
+      border-radius:999px;
+      background: rgba(255,255,255,.18);
+      display:inline-block;
+    }
+
     .search{
       display:flex;
       align-items:center;
@@ -565,6 +575,35 @@
   </div>
 
   <script>
+    // =========================
+    // 자동 업데이트 모드 (최신 패치 자동 반영)
+    // - Data Dragon versions.json의 최신 버전(맨 앞)을 사용
+    // - 화면에 표시되는 '버전(롤 패치)'도 Data Dragon 버전에서 자동 파생
+    //   예: "26.2.1" -> "26.02"
+    //
+    // 옵션: URL 파라미터로 버전 고정 가능
+    //   ?dd=26.2.1   (Data Dragon 버전 고정)
+    // =========================
+    const CREATOR_LABEL = "제작자 : Saroo";
+
+    function getQueryParam(key){
+      const url = new URL(location.href);
+      return url.searchParams.get(key);
+    }
+
+    function computePatchLabelFromDdragon(versionStr){
+      // 일반적으로 "26.2.1" 형태. "26.2" 등도 대비.
+      const parts = String(versionStr || "").split(".");
+      const major = parseInt(parts[0], 10);
+      const minor = parseInt(parts[1] ?? "0", 10);
+
+      if (Number.isFinite(major) && Number.isFinite(minor)){
+        return `${major}.${String(minor).padStart(2,"0")}`;
+      }
+      // 파싱 실패 시 원문 반환
+      return String(versionStr || "");
+    }
+
     // ---------- 한글 초성 추출/자음 검색 지원 ----------
     const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
     const COMPOSITE_JAMO = {
@@ -628,7 +667,7 @@
       return Math.max(lo, Math.min(hi, x));
     }
 
-    // 궁극의 사냥꾼(현재 일반적으로 쓰는 값): 6 + 5×스택 (0~5) = 최대 31 궁극기 가속
+    // 궁극의 사냥꾼(일반적으로 쓰는 값): 6 + 5×스택 (0~5) = 최대 31 궁극기 가속
     function ultimateHunterHaste(stacks){
       const s = clampInt(stacks, 0, 5);
       return 6 + 5 * s;
@@ -664,13 +703,25 @@
     };
 
     let nextTarget = "B";
-    let VERSION = null;
+    let VERSION = null;       // Data Dragon 버전(예: 26.2.1)
+    let PATCH_LABEL = null;   // 화면 표시용 패치(예: 26.02)
     let champList = [];
     const champCache = new Map();
 
     function updateCountPill(){
       const visible = Array.from(champGrid.children).filter(x => x.style.display !== "none").length;
       countPill.textContent = `${visible}/${champList.length}`;
+    }
+
+    function setMeta(versionForData, champCount){
+      metaA.innerHTML = `
+        <span>버전 ${PATCH_LABEL}</span>
+        <span class="dot"></span>
+        <span>${champCount}명</span>
+        <span class="dot"></span>
+        <span>${CREATOR_LABEL}</span>
+      `;
+      console.log("[DataDragon Version]", versionForData, "-> Patch Label", PATCH_LABEL);
     }
 
     function syncHunterUI(which){
@@ -693,8 +744,17 @@
       `;
     }
 
-    async function getLatestVersion(){
-      const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
+    async function getAllVersions(){
+      return await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
+    }
+
+    async function resolveDDragonVersion(){
+      const pin = getQueryParam("dd");
+      const versions = await getAllVersions();
+
+      if (pin && versions.includes(pin)) return pin;
+
+      // 최신 자동 업데이트: 항상 맨 앞(최신) 사용
       return versions[0];
     }
 
@@ -895,24 +955,26 @@
         rerender();
       });
       p.hunterStacksEl.addEventListener("input", () => {
-        // 범위 클램프
         const v = clampInt(p.hunterStacksEl.value, 0, 5);
         p.hunterStacksEl.value = String(v);
         rerender();
       });
 
-      // 초기 상태
       syncHunterUI(which);
     }
 
     async function init(){
       try{
         metaA.textContent = "버전 확인 중…";
-        VERSION = await getLatestVersion();
+
+        VERSION = await resolveDDragonVersion();       // 최신 자동
+        PATCH_LABEL = computePatchLabelFromDdragon(VERSION);
+
         champList = await loadChampionList(VERSION);
         renderChampionGrid(champList);
         filterChampions("");
-        metaA.textContent = `버전 ${VERSION} · ${champList.length}명`;
+
+        setMeta(VERSION, champList.length);
 
         let t = null;
         searchInput.addEventListener("input", () => {
@@ -938,6 +1000,6 @@
     }
 
     init();
-  </script>
+</script>
 </body>
 </html>
